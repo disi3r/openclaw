@@ -1,20 +1,14 @@
 import { en } from "../locales/en.ts";
 import {
   DEFAULT_LOCALE,
-  SUPPORTED_LOCALES,
   isSupportedLocale,
   loadLazyLocaleTranslation,
   resolveNavigatorLocale,
 } from "./registry.ts";
 import type { Locale, TranslationMap } from "./types.ts";
+export { SUPPORTED_LOCALES, isSupportedLocale } from "./registry.ts";
 
 type Subscriber = (locale: Locale) => void;
-
-export const SUPPORTED_LOCALES: ReadonlyArray<Locale> = ["en", "zh-CN", "zh-TW", "pt-BR", "es-ES"];
-
-export function isSupportedLocale(value: string | null | undefined): value is Locale {
-  return value !== null && value !== undefined && SUPPORTED_LOCALES.includes(value as Locale);
-}
 
 class I18nManager {
   private locale: Locale = DEFAULT_LOCALE;
@@ -22,28 +16,18 @@ class I18nManager {
   private subscribers: Set<Subscriber> = new Set();
 
   constructor() {
-    this.loadLocale();
+    const initialLocale = this.resolveInitialLocale();
+    // Use the normal locale setter so startup locale loading follows the same
+    // translation-loading + notify path as manual locale changes.
+    void this.setLocale(initialLocale);
   }
 
   private resolveInitialLocale(): Locale {
     const saved = localStorage.getItem("openclaw.i18n.locale");
     if (isSupportedLocale(saved)) {
-      this.locale = saved;
-    } else {
-      const navLang = navigator.language;
-      if (navLang.startsWith("zh")) {
-        this.locale = navLang === "zh-TW" || navLang === "zh-HK" ? "zh-TW" : "zh-CN";
-      } else if (navLang.startsWith("pt")) {
-        this.locale = "pt-BR";
-      } else if (navLang.startsWith("es")) {
-        this.locale = "es-ES";
-      } else {
-        this.locale = "en";
-      }
+      return saved;
     }
-    // Use the normal locale setter so startup locale loading follows the same
-    // translation-loading + notify path as manual locale changes.
-    void this.setLocale(initialLocale);
+    return resolveNavigatorLocale(navigator.language);
   }
 
   public getLocale(): Locale {
@@ -58,16 +42,8 @@ class I18nManager {
 
     if (needsTranslationLoad) {
       try {
-        let module: Record<string, TranslationMap>;
-        if (locale === "zh-CN") {
-          module = await import("../locales/zh-CN.ts");
-        } else if (locale === "zh-TW") {
-          module = await import("../locales/zh-TW.ts");
-        } else if (locale === "pt-BR") {
-          module = await import("../locales/pt-BR.ts");
-        } else if (locale === "es-ES") {
-          module = await import("../locales/es-ES.ts");
-        } else {
+        const translation = await loadLazyLocaleTranslation(locale);
+        if (!translation) {
           return;
         }
         this.translations[locale] = translation;
